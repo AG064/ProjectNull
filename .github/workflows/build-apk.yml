@@ -1,0 +1,78 @@
+name: Build APK
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile (preview = APK, production = AAB)"
+        required: false
+        default: "preview"
+        type: choice
+        options:
+          - preview
+          - production
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Determine build profile
+        id: profile
+        run: echo "value=${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'preview' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK via EAS (local)
+        run: |
+          eas build \
+            --platform android \
+            --profile "${{ steps.profile.outputs.value }}" \
+            --non-interactive \
+            --local \
+            --output ./app-release.apk
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjectNull-${{ steps.profile.outputs.value }}-${{ github.sha }}
+          path: ./app-release.apk
+          retention-days: 30
+          if-no-files-found: error
