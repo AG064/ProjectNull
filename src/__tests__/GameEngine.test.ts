@@ -64,8 +64,7 @@ describe('GameEngine', () => {
   describe('resource accumulation with drones', () => {
     it('accumulates silicon from a mining drone each tick', () => {
       const engine = makeFreshEngine();
-      const drone = createMiningDrone('silicon', 3);
-      engine.getState().drones.push(drone.toData());
+      engine.addDrone(createMiningDrone('silicon', 3));
 
       engine.tick();
 
@@ -74,8 +73,7 @@ describe('GameEngine', () => {
 
     it('accumulates silicon over multiple ticks', () => {
       const engine = makeFreshEngine();
-      const drone = createMiningDrone('silicon', 2);
-      engine.getState().drones.push(drone.toData());
+      engine.addDrone(createMiningDrone('silicon', 2));
 
       engine.tick();
       engine.tick();
@@ -87,8 +85,7 @@ describe('GameEngine', () => {
 
     it('accumulates computePower from a compute drone each tick', () => {
       const engine = makeFreshEngine();
-      const drone = createMiningDrone('computePower', 5);
-      engine.getState().drones.push(drone.toData());
+      engine.addDrone(createMiningDrone('computePower', 5));
 
       engine.tick();
 
@@ -97,14 +94,57 @@ describe('GameEngine', () => {
 
     it('supports multiple drones mining different resources simultaneously', () => {
       const engine = makeFreshEngine();
-      const siliconDrone = createMiningDrone('silicon', 4);
-      const computeDrone = createMiningDrone('computePower', 2);
-      engine.getState().drones.push(siliconDrone.toData(), computeDrone.toData());
+      engine.addDrone(createMiningDrone('silicon', 4));
+      engine.addDrone(createMiningDrone('computePower', 2));
 
       engine.tick();
 
       expect(engine.getState().resources.silicon).toBe(4);
       expect(engine.getState().resources.computePower).toBe(2);
+    });
+  });
+
+  describe('drone battery drain through engine ticks', () => {
+    it('drone battery decreases after each engine tick', () => {
+      const engine = makeFreshEngine();
+      const drone = createMiningDrone('silicon', 1);
+      engine.addDrone(drone);
+
+      engine.tick();
+      engine.tick();
+
+      // After 2 ticks the serialized DroneData battery should be 98.
+      const droneData = engine.getState().drones[0];
+      expect(droneData.battery).toBe(98);
+    });
+
+    it('drone transitions to returning state when battery depletes', () => {
+      const engine = makeFreshEngine();
+      // Use high miningRate so battery is the only variable that matters.
+      const drone = createMiningDrone('silicon', 1);
+      engine.addDrone(drone);
+
+      // Run 100 ticks to drain battery from 100 to 0.
+      for (let i = 0; i < 100; i++) engine.tick();
+
+      const droneData = engine.getState().drones[0];
+      expect(droneData.state).toBe('returning');
+      expect(droneData.battery).toBe(0);
+    });
+
+    it('drone stops yielding resources after battery depletes', () => {
+      const engine = makeFreshEngine();
+      const drone = createMiningDrone('silicon', 5);
+      engine.addDrone(drone);
+
+      // Drain battery fully.
+      for (let i = 0; i < 100; i++) engine.tick();
+      const siliconAfterDrain = engine.getState().resources.silicon;
+
+      // Additional ticks should not increase silicon.
+      engine.tick();
+      engine.tick();
+      expect(engine.getState().resources.silicon).toBe(siliconAfterDrain);
     });
   });
 
@@ -119,6 +159,32 @@ describe('GameEngine', () => {
       const engine = makeFreshEngine();
       engine.setResource('silicon', -50);
       expect(engine.getState().resources.silicon).toBe(0);
+    });
+
+    it('clamps to maxAmount when defined (computePower cap 1000)', () => {
+      const engine = makeFreshEngine();
+      engine.setResource('computePower', 9999);
+      expect(engine.getState().resources.computePower).toBe(1000);
+    });
+
+    it('does not clamp uncapped resources (silicon has no max)', () => {
+      const engine = makeFreshEngine();
+      engine.setResource('silicon', 999999);
+      expect(engine.getState().resources.silicon).toBe(999999);
+    });
+  });
+
+  describe('applyDeltas respects maxAmount cap', () => {
+    it('computePower does not exceed 1000 from tick accumulation', () => {
+      const engine = makeFreshEngine();
+      // Set computePower near cap.
+      engine.setResource('computePower', 999);
+      // Drone yields 5 per tick but cap is 1000.
+      engine.addDrone(createMiningDrone('computePower', 5));
+
+      engine.tick();
+
+      expect(engine.getState().resources.computePower).toBe(1000);
     });
   });
 
@@ -173,12 +239,23 @@ describe('GameEngine', () => {
   });
 
   describe('getState immutability', () => {
-    it('returns a copy so mutations do not affect engine state', () => {
+    it('resources copy: mutations do not affect engine state', () => {
       const engine = makeFreshEngine();
       const state = engine.getState();
       state.resources.silicon = 9999;
 
       expect(engine.getState().resources.silicon).toBe(0);
+    });
+
+    it('drones copy: push on snapshot does not affect engine state', () => {
+      const engine = makeFreshEngine();
+      engine.addDrone(createMiningDrone('silicon', 1));
+
+      const snapshot = engine.getState();
+      // Mutating the snapshot's drones array should not affect the engine.
+      (snapshot.drones as unknown[]).push({ fake: true });
+
+      expect(engine.getState().drones).toHaveLength(1);
     });
   });
 

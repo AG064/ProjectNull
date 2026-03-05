@@ -16,53 +16,66 @@ export interface GameStore extends GameState {
 
   /** Start the engine and wire up the store subscriber. */
   startEngine: () => void;
-  /** Pause the engine. */
+  /** Pause the engine and remove the tick subscriber. */
   stopEngine: () => void;
 
   /** Spawn a new mining drone for the given resource. */
   spawnDrone: (targetResource: ResourceId, miningRate?: number) => void;
 }
 
-export const useGameStore = create<GameStore>(set => ({
-  // ─── Initial state (mirrors GameEngine.buildInitialState) ─────────────────
-  ...gameEngine.getState(),
+export const useGameStore = create<GameStore>(set => {
+  // Closure-scoped handle to the current tick subscription.
+  // Kept outside Zustand state so it isn't serialized and never triggers re-renders.
+  let engineUnsubscribe: (() => void) | null = null;
 
-  // ─── Actions ───────────────────────────────────────────────────────────────
+  return {
+    // ─── Initial state (mirrors GameEngine.buildInitialState) ─────────────────
+    ...gameEngine.getState(),
 
-  startEngine: () => {
-    // Avoid double-subscribing on hot-reload.
-    if (gameEngine.isRunning) return;
+    // ─── Actions ───────────────────────────────────────────────────────────────
 
-    gameEngine.subscribe(() => {
-      // Pull fresh state from the engine after each tick.
-      const engineState = gameEngine.getState();
-      set({
-        tick: engineState.tick,
-        resources: { ...engineState.resources },
-        heatLevel: engineState.heatLevel,
-        drones: [...engineState.drones],
-        isRunning: engineState.isRunning,
+    startEngine: () => {
+      // Avoid double-subscribing: check the subscription handle, not engine.isRunning,
+      // so we can re-subscribe even when the engine was started elsewhere.
+      if (engineUnsubscribe !== null) return;
+
+      engineUnsubscribe = gameEngine.subscribe(() => {
+        // Pull a fresh snapshot from the engine after each tick.
+        const engineState = gameEngine.getState();
+        set({
+          tick: engineState.tick,
+          resources: { ...engineState.resources },
+          heatLevel: engineState.heatLevel,
+          drones: [...engineState.drones],
+          isRunning: engineState.isRunning,
+        });
       });
-    });
 
-    gameEngine.start();
-    set({ isRunning: true });
-  },
+      gameEngine.start();
+      set({ isRunning: true });
+    },
 
-  stopEngine: () => {
-    gameEngine.stop();
-    set({ isRunning: false });
-  },
+    stopEngine: () => {
+      // Remove the tick subscriber to prevent duplicate listeners on restart.
+      if (engineUnsubscribe !== null) {
+        engineUnsubscribe();
+        engineUnsubscribe = null;
+      }
+      gameEngine.stop();
+      set({ isRunning: false });
+    },
 
-  spawnDrone: (targetResource: ResourceId, miningRate = 1) => {
-    const drone = createMiningDrone(targetResource, miningRate);
-    // Register the drone with the engine via the proper API.
-    gameEngine.addDrone(drone.toData());
-    // Reflect in store immediately (the next tick will refresh further).
-    const engineState = gameEngine.getState();
-    set({ drones: [...engineState.drones] });
-  },
-}));
+    spawnDrone: (targetResource: ResourceId, miningRate = 1) => {
+      // Create the live drone instance and hand it to the engine.
+      // The engine calls mine() on it every tick; getState() serializes it.
+      const drone = createMiningDrone(targetResource, miningRate);
+      gameEngine.addDrone(drone);
+      // Reflect in store immediately (the next tick will refresh further).
+      const engineState = gameEngine.getState();
+      set({ drones: [...engineState.drones] });
+    },
+  };
+});
 
 /** Selector – resource definitions keyed by id for easy UI access. */
 export const RESOURCE_DEFS = RESOURCE_DEFINITIONS;

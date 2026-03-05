@@ -45,7 +45,7 @@ export const RESOURCE_DEFINITIONS: Readonly<Record<ResourceId, ResourceDefinitio
   },
 } as const;
 
-/** Returns the zero-initialised ResourceMap derived from definitions. */
+/** Returns the initial ResourceMap seeded from each definition's `initialAmount`. */
 export function buildInitialResourceMap(): Record<ResourceId, number> {
   return (Object.values(RESOURCE_DEFINITIONS) as ResourceDefinition[]).reduce(
     (acc, def) => {
