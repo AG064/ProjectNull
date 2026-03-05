@@ -53,6 +53,7 @@ export class GameEngine {
   start(): void {
     if (this.intervalHandle !== null) return;
     this.intervalHandle = setInterval(() => this.tick(), this.tickMs);
+    this.state.isRunning = true;
   }
 
   /** Stop the tick loop. Safe to call when already stopped. */
@@ -60,6 +61,7 @@ export class GameEngine {
     if (this.intervalHandle === null) return;
     clearInterval(this.intervalHandle);
     this.intervalHandle = null;
+    this.state.isRunning = false;
   }
 
   /** Returns true while the engine's interval is active. Derived from intervalHandle. */
@@ -78,7 +80,7 @@ export class GameEngine {
     return {
       ...this.state,
       resources: { ...this.state.resources },
-      drones: [...this.state.drones],
+      drones: this.state.drones.map(d => ({ ...d })),
       isRunning: this.isRunning,
     };
   }

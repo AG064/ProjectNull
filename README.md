@@ -42,7 +42,7 @@ src/
 ```bash
 npm install
 npm start          # Expo dev server
-npm test           # Jest unit tests (31 tests)
+npm test           # Jest unit tests
 npm run typecheck  # TypeScript strict check
 ```
 

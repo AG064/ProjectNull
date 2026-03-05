@@ -257,12 +257,24 @@ describe('GameEngine', () => {
 
       expect(engine.getState().drones).toHaveLength(1);
     });
+
+    it('drones deep copy: mutating a DroneData element does not affect engine state', () => {
+      const engine = makeFreshEngine();
+      engine.addDrone(createMiningDrone('silicon', 1));
+
+      const snapshot = engine.getState();
+      // Mutating a property on a returned DroneData object should not corrupt the engine.
+      snapshot.drones[0].battery = 0;
+
+      expect(engine.getState().drones[0].battery).toBe(100);
+    });
   });
 
   describe('start/stop lifecycle', () => {
     afterEach(() => {
-      // Ensure timers are cleared after each test.
-      jest.clearAllTimers();
+      // Ensure fake timers are fully cleaned up after each test, even if a test fails.
+      jest.runOnlyPendingTimers();
+      jest.useRealTimers();
     });
 
     it('isRunning is true after start()', () => {
@@ -271,7 +283,6 @@ describe('GameEngine', () => {
       engine.start();
       expect(engine.isRunning).toBe(true);
       engine.stop();
-      jest.useRealTimers();
     });
 
     it('isRunning is false after stop()', () => {
@@ -280,7 +291,6 @@ describe('GameEngine', () => {
       engine.start();
       engine.stop();
       expect(engine.isRunning).toBe(false);
-      jest.useRealTimers();
     });
 
     it('calling start() twice does not create duplicate intervals', () => {
@@ -296,7 +306,6 @@ describe('GameEngine', () => {
       expect(handler).toHaveBeenCalledTimes(1);
 
       engine.stop();
-      jest.useRealTimers();
     });
   });
 });
