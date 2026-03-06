@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       profile:
@@ -24,8 +25,10 @@ concurrency:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build Android artifact
     runs-on: ubuntu-latest
+    # Skip fork PRs — they cannot access EXPO_TOKEN
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
 
@@ -51,28 +54,36 @@ jobs:
       - name: Setup EAS
         uses: expo/expo-github-action@v8
         with:
-          eas-version: latest
+          eas-version: 18.x
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Determine build profile
+      - name: Determine build profile and output extension
         id: profile
-        run: echo "value=${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'preview' }}" >> "$GITHUB_OUTPUT"
+        run: |
+          PROFILE="${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'preview' }}"
+          if [ "$PROFILE" = "production" ]; then
+            EXT="aab"
+          else
+            EXT="apk"
+          fi
+          echo "value=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "ext=$EXT" >> "$GITHUB_OUTPUT"
 
-      - name: Build APK via EAS (local)
+      - name: Build via EAS (local)
         run: |
           eas build \
             --platform android \
             --profile "${{ steps.profile.outputs.value }}" \
             --non-interactive \
             --local \
-            --output ./app-release.apk
+            --output "./app-release.${{ steps.profile.outputs.ext }}"
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Upload APK as artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ProjectNull-${{ steps.profile.outputs.value }}-${{ github.sha }}
-          path: ./app-release.apk
+          path: ./app-release.${{ steps.profile.outputs.ext }}
           retention-days: 30
           if-no-files-found: error
