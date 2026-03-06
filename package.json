@@ -8,7 +8,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "test": "jest --watchAll=false",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:apk": "eas build -p android --profile preview",
+    "build:apk:local": "expo prebuild --platform android && cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
     "expo": "~55.0.5",
