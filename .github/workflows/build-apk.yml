@@ -1,0 +1,89 @@
+name: Build Android artifact (APK/AAB)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile (preview = APK, production = AAB)"
+        required: false
+        default: "preview"
+        type: choice
+        options:
+          - preview
+          - production
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android artifact
+    runs-on: ubuntu-latest
+    # Skip fork PRs — they cannot access EXPO_TOKEN
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.x
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Determine build profile and output extension
+        id: profile
+        run: |
+          PROFILE="${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'preview' }}"
+          if [ "$PROFILE" = "production" ]; then
+            EXT="aab"
+          else
+            EXT="apk"
+          fi
+          echo "value=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "ext=$EXT" >> "$GITHUB_OUTPUT"
+
+      - name: Build via EAS (local)
+        run: |
+          eas build \
+            --platform android \
+            --profile "${{ steps.profile.outputs.value }}" \
+            --non-interactive \
+            --local \
+            --output "./app-release.${{ steps.profile.outputs.ext }}"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjectNull-${{ steps.profile.outputs.value }}-${{ github.sha }}
+          path: ./app-release.${{ steps.profile.outputs.ext }}
+          retention-days: 30
+          if-no-files-found: error
